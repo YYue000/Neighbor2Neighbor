@@ -2,19 +2,18 @@ import numpy as np
 import cv2
 from PIL import Image
 import torch
-import torch.optim as optim
-from torch.optim import lr_scheduler
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from imagecorruptions import corrupt
 
 from arch_unet import UNet
-from utils import AugmentNoise, calculate_ssim, calculate_psnr
+from utils import AugmentNoise, calculate_ssim, calculate_psnr, Generator
 
 import argparse
 import random
 import os
+import json
 
 
 import logging
@@ -23,17 +22,17 @@ logger = logging.getLogger('global')
 
 
 def read_image(p):
-    return np.asarray(Image.open(p)).astype(np.float32)
+    image = Image.open(p)
+    if image.mode != 'RGB':
+        image = image.convert("RGB")
 
-class ValDataset(Dataset):
+    return np.asarray(image).astype(np.float32)
+
+class ValDatasetDir(Dataset):
     def __init__(self, data_root, noise_method=None, noise_type=None):
-        super(ValDataset, self).__init__()
-        img_paths = []
-        for r, d, files in os.walk(data_root):
-            for f in files:
-                if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.jpeg') or f.endswith('.JPEG'):
-                    img_paths.append(os.path.join(r, f))
-        self.img_paths = img_paths
+        super(ValDatasetDir, self).__init__()
+        self.data_root = data_root
+        self.img_paths = self._get_img_paths()
         
         logger.info(f'noisetype {noise_method} {noise_type}')
         self.noise_method = noise_method
@@ -41,8 +40,16 @@ class ValDataset(Dataset):
             self.noise_adder = AugmentNoise(style=noise_type)
         elif noise_method == 'imagecorruptions':
             self.severity = 3
-            self.corruption = self.noisy_type
+            self.corruption = noise_type
         self.transform = transforms.Compose([transforms.ToTensor()])
+
+    def _get_img_paths(self):
+        img_paths = []
+        for r, d, files in os.walk(self.data_root):
+            for f in files:
+                if f.endswith('.jpg') or f.endswith('.png') or f.endswith('.jpeg') or f.endswith('.JPEG'):
+                    img_paths.append(os.path.join(r, f))
+        return img_paths
 
     def _add_noise(self, im):
         if self.noise_method is None:
@@ -53,7 +60,7 @@ class ValDataset(Dataset):
             noisy255 = np.clip(noisy_im * 255.0 + 0.5, 0, 255).astype(np.uint8)
             return noisy255
         elif self.noise_method == 'imagecorruptions':
-            return corrupt(im.astype(np.uint8), corruption_name=self.noise_type, severity=self.severity)
+            return corrupt(im.astype(np.uint8), corruption_name=self.corruption, severity=self.severity)
         else:
             raise NotImplementedError
 
@@ -79,6 +86,15 @@ class ValDataset(Dataset):
 
     def __len__(self):
         return len(self.img_paths)
+
+class ValDatasetFile(ValDatasetDir):
+    def __init__(self, data_root, ann_file, noise_method=None, noise_type=None):
+        self.ann_file = ann_file
+        self.data_root = data_root
+        super(ValDatasetFile, self).__init__(data_root, noise_method, noise_type)
+
+    def _get_img_paths(self):
+         return [os.path.join(self.data_root, _['file_name']) for _ in json.load(open(self.ann_file))['images']]
 
 
 def validate(network, valdataloader, opt, verbose=True):
@@ -119,7 +135,7 @@ def validate(network, valdataloader, opt, verbose=True):
         save_path = os.path.join(
             validation_path,
             "{}_clean.jpg".format(im_name.split('.')[0]))
-        if opt.noisetype is not None:
+        if opt.noisemethod is not None:
             Image.fromarray(origin255).convert('RGB').save(save_path)
 
         save_path = save_path.replace('clean', 'noisy')
@@ -134,6 +150,7 @@ def validate(network, valdataloader, opt, verbose=True):
             save_path = save_path.replace('_noisy', '')
             Image.fromarray(pred255).convert('RGB').save(save_path)
 
+    logger.info(f'{ssim_result} {psnr_result}')
     avg_psnr = np.mean(psnr_result)
     avg_ssim = np.mean(ssim_result)
     return avg_psnr, avg_ssim
@@ -160,7 +177,7 @@ if __name__ == '__main__':
     network = network.cuda()
     network.load_state_dict(torch.load(opt.ckpt))
 
-    valdataset = ValDataset(opt.val_dir, opt.noisemethod, opt.noisetype)
+    valdataset = ValDatasetDir(opt.val_dir, opt.noisemethod, opt.noisetype)
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 
     _,__ = validate(network, valdataloader, opt)

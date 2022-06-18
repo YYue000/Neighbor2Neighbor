@@ -36,7 +36,7 @@ class UpsampleCat(nn.Module):
         self.in_nc = in_nc
         self.out_nc = out_nc
 
-        self.deconv = nn.ConvTranspose2d(in_nc, out_nc, 2, 2, 0, False)
+        self.deconv = nn.ConvTranspose2d(in_nc, out_nc, 2, 2, 0, 0)
         initialize_weights(self.deconv, 0.1)
 
     def forward(self, x1, x2):
@@ -87,6 +87,7 @@ class UNet(nn.Module):
                  blindspot=False,
                  zero_last=False):
         super(UNet, self).__init__()
+
         self.in_nc = in_nc
         self.out_nc = out_nc
         self.n_feature = n_feature
@@ -172,6 +173,8 @@ class UNet(nn.Module):
         self.nin_c = nn.Conv2d(96, self.out_nc, 1, 1, 0)
         if not self.zero_last:
             initialize_weights(self.nin_c, 0.1)
+
+        print(self)
 
     def forward(self, x):
         # Input stage
