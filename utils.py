@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import cv2
+from easydict import EasyDict
 
 import logging
 logger = logging.getLogger('global')
@@ -41,11 +42,12 @@ class AugmentNoise(object):
         shape = x.shape
         if self.style == "gauss_fix":
             std = self.params[0]
-            std = std * torch.ones((shape[0], 1, 1, 1), device=x.device)
-            noise = torch.cuda.FloatTensor(shape, device=x.device)
+            #std = std * torch.ones((shape[0], 1, 1, 1), device=x.device)
+            std = std * torch.ones((1, 1, 1))
+            noise = torch.FloatTensor(shape)
             torch.normal(mean=0.0,
                          std=std,
-                         generator=Generator.get_generator(),
+                         #generator=Generator.get_generator(),
                          out=noise)
             return x + noise
         elif self.style == "gauss_range":
@@ -141,4 +143,12 @@ def calculate_psnr(target, ref):
     diff = img1 - img2
     psnr = 10.0 * np.log10(255.0 * 255.0 / np.mean(np.square(diff)))
     return psnr
+
+DUMP_IMAGES=EasyDict(
+    NO_DUMP = 0,
+    DENOISED_ONLY = 1,
+    DENOISED_CLEAN = 2,
+    DENOISED_NOISY = 3,
+    DENOISED_NOISY_CLEAN = 4
+    )
 

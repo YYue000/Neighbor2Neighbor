@@ -8,18 +8,18 @@ from torch.utils.data import Dataset
 from imagecorruptions import corrupt
 
 from arch_unet import UNet
-from utils import AugmentNoise, calculate_ssim, calculate_psnr, Generator
+from utils import AugmentNoise, calculate_ssim, calculate_psnr, DUMP_IMAGES
 
 import argparse
 import random
 import os
 import json
+from easydict import EasyDict
 
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s-%(filename)s#%(lineno)d:%(message)s')
 logger = logging.getLogger('global')
-
 
 def read_image(p):
     image = Image.open(p)
@@ -53,7 +53,7 @@ class ValDatasetDir(Dataset):
 
     def _add_noise(self, im):
         if self.noise_method is None:
-            return im
+            return im.astype(np.uint8)
         elif self.noise_method == 'AugmentNoise':
             im = im/255.0
             noisy_im = self.noise_adder.add_valid_noise(im)
@@ -135,22 +135,21 @@ def validate(network, valdataloader, opt, verbose=True):
         save_path = os.path.join(
             validation_path,
             "{}_clean.jpg".format(im_name.split('.')[0]))
-        if opt.noisemethod is not None:
+        if opt.dump_images in [DUMP_IMAGES.DENOISED_CLEAN, DUMP_IMAGES.DENOISED_NOISY_CLEAN]:
             Image.fromarray(origin255).convert('RGB').save(save_path)
 
         save_path = save_path.replace('clean', 'noisy')
-        if not opt.dump_denoise_only:
+        if opt.dump_images in [DUMP_IMAGES.DENOISED_NOISY, DUMP_IMAGES.DENOISED_NOISY_CLEAN]:
             noisy255 = noisy_im[:,:,:H,:W]
             noisy255 = (noisy255.permute(0,2,3,1).squeeze().cpu().numpy()*255).astype(np.uint8)
             Image.fromarray(noisy255).convert('RGB').save(save_path)
-        if not opt.dump_denoise_only:
             save_path = save_path.replace('noisy', 'denoised')
-            Image.fromarray(pred255).convert('RGB').save(save_path)
         else:
             save_path = save_path.replace('_noisy', '')
+       
+        if opt.dump_images != DUMP_IMAGES.NO_DUMP:
             Image.fromarray(pred255).convert('RGB').save(save_path)
 
-    logger.info(f'{ssim_result} {psnr_result}')
     avg_psnr = np.mean(psnr_result)
     avg_ssim = np.mean(ssim_result)
     return avg_psnr, avg_ssim
@@ -162,13 +161,16 @@ if __name__ == '__main__':
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
     parser.add_argument('--val_dir', type=str)
+    parser.add_argument('--val_ann_file', type=str, default=None)
     parser.add_argument('--save_model_path', type=str, default='./results')
     parser.add_argument('--n_feature', type=int, default=48)
     parser.add_argument('--n_channel', type=int, default=3)
     parser.add_argument("--ckpt", type=str)
-    parser.add_argument("--dump_denoise_only", action="store_true")
+    parser.add_argument("--dump_images", type=str, choices=list(DUMP_IMAGES))
 
     opt = parser.parse_args()
+    opt.dump_images = DUMP_IMAGES[opt.dump_images]
+    logger.info(f'{opt}')
 
 
     network = UNet(in_nc=opt.n_channel,
@@ -177,7 +179,10 @@ if __name__ == '__main__':
     network = network.cuda()
     network.load_state_dict(torch.load(opt.ckpt))
 
-    valdataset = ValDatasetDir(opt.val_dir, opt.noisemethod, opt.noisetype)
+    if opt.val_ann_file is None:
+        valdataset = ValDatasetDir(opt.val_dir, opt.noisemethod, opt.noisetype)
+    else:
+        valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 
     _,__ = validate(network, valdataloader, opt)

@@ -21,14 +21,14 @@ from torch.utils.data import Dataset
 import torchvision.transforms.functional as F
 
 from arch_unet import UNet
-from validate import validate, ValDatasetFile, Generator
+from validate import validate, ValDatasetFile
+from utils import Generator, DUMP_IMAGES
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s-%(filename)s#%(lineno)d:%(message)s')
 logger = logging.getLogger('global')
 
-def checkpoint(net, epoch, name):
-    save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime)
+def checkpoint(net, epoch, name, save_model_path):
     os.makedirs(save_model_path, exist_ok=True)
     model_name = 'epoch_{}_{:03d}.pth'.format(name, epoch)
     save_model_path = os.path.join(save_model_path, model_name)
@@ -63,7 +63,7 @@ def generate_mask_pair(img):
     torch.randint(low=0,
                   high=8,
                   size=(n * h // 2 * w // 2, ),
-                  generator=Generator.get_generator(),
+                  #generator=Generator.get_generator(), # debug
                   out=rd_idx)
     rd_pair_idx = idx_pair[rd_idx]
     rd_pair_idx += torch.arange(start=0,
@@ -95,9 +95,9 @@ def generate_subimages(img, mask):
     return subimage
 
 
-class DataLoader_Imagenet_val(Dataset):
+class DataSet_COCO_val(Dataset):
     def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256):
-        super(DataLoader_Imagenet_val, self).__init__()
+        super(DataSet_COCO_val, self).__init__()
         self.patch = patch
 
         self.data_root = data_root
@@ -140,7 +140,7 @@ class DataLoader_Imagenet_val(Dataset):
     def __getitem__(self, idx):
 
         img_path_clean = os.path.join(self.data_root, self.clean_root, self.img_paths[idx]) 
-        img_path_corrupted = os.path.join(self.data_root, self.clean_root, self.img_paths[idx]) 
+        img_path_corrupted = os.path.join(self.data_root, self.corrupted_root, self.img_paths[idx]) 
         imgcl = self._get_img(img_path_clean)
         imgcr = self._get_img(img_path_corrupted)
         assert imgcl.size == imgcr.size, f'{imgcl.size} {imgcr.size}'
@@ -172,9 +172,10 @@ if __name__ == '__main__':
     parser.add_argument('--val_dir', type=str)
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
-    parser.add_argument("--dump_denoise_only", action="store_true")
+    parser.add_argument("--dump_images", type=str, default=DUMP_IMAGES.DENOISED_NOISY_CLEAN, choices=list(DUMP_IMAGES))
     parser.add_argument('--save_model_path', type=str, default='./results')
     parser.add_argument('--log_name', type=str, default='unet_gauss25_b4e100r02')
+    parser.add_argument('--log_freq', type=int, default=1)
     parser.add_argument('--gpu_devices', default='0', type=str)
     parser.add_argument('--parallel', action='store_true')
     parser.add_argument('--n_feature', type=int, default=48)
@@ -183,6 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--n_epoch', type=int, default=100)
     parser.add_argument('--n_snapshot', type=int, default=1)
+    parser.add_argument('--n_val', type=int, default=None)
     parser.add_argument('--batchsize', type=int, default=4)
     parser.add_argument('--patchsize', type=int, default=256)
     parser.add_argument("--Lambda1", type=float, default=1.0)
@@ -190,13 +192,20 @@ if __name__ == '__main__':
     parser.add_argument("--increase_ratio", type=float, default=2.0)
 
     opt, _ = parser.parse_known_args()
+    if opt.n_val is None:
+        opt.n_val = opt.n_snapshot
     systime = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
     operation_seed_counter = 0
     os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpu_devices
 
+    
+    logging.basicConfig(filename = os.path.join(opt.save_model_path, opt.log_name, systime, "train.log"),
+                    filemode = "w",
+                    format = '%(asctime)s-%(filename)s#%(lineno)d:%(message)s')
+    logger.info(f'{opt}')
 
     # Training Set
-    TrainingDataset = DataLoader_Imagenet_val(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize)
+    TrainingDataset = DataSet_COCO_val(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize)
     TrainingLoader = DataLoader(dataset=TrainingDataset,
                                 num_workers=8,
                                 batch_size=opt.batchsize,
@@ -218,6 +227,7 @@ if __name__ == '__main__':
     num_epoch = opt.n_epoch
     ratio = num_epoch / 100
     optimizer = optim.Adam(network.parameters(), lr=opt.lr)
+
     scheduler = lr_scheduler.MultiStepLR(optimizer,
                                          milestones=[
                                              int(20 * ratio) - 1,
@@ -228,12 +238,12 @@ if __name__ == '__main__':
                                          gamma=opt.gamma)
     logger.info("Batchsize={}, number of epoch={}".format(opt.batchsize, opt.n_epoch))
 
-    checkpoint(network, 0, "model")
+    #checkpoint(network, 0, "model")
     logger.info('init finish')
 
     validate_opt = EasyDict({'noisemethod': opt.noisemethod, 
         'noisetype': opt.noisetype,
-        'dump_denoise_only': opt.dump_denoise_only})
+        'dump_images': opt.dump_images})
 
     for epoch in range(1, opt.n_epoch + 1):
         cnt = 0
@@ -248,7 +258,6 @@ if __name__ == '__main__':
 
             clean = clean.cuda()
             noisy = noisy.cuda()
-            logger.info(f'noisy {noisy.shape} {torch.max(noisy)} {torch.min(noisy)}')
 
             optimizer.zero_grad()
 
@@ -272,7 +281,8 @@ if __name__ == '__main__':
 
             loss_all.backward()
             optimizer.step()
-            logger.info(
+            if iteration % opt.log_freq == 0:
+                logger.info(
                 '{:04d} {:05d} Loss1={:.6f}, Lambda={}, Loss2={:.6f}, Loss_Full={:.6f}, Time={:.4f}'
                 .format(epoch, iteration, np.mean(loss1.item()), Lambda,
                         np.mean(loss2.item()), np.mean(loss_all.item()),
@@ -282,7 +292,9 @@ if __name__ == '__main__':
 
         if epoch % opt.n_snapshot == 0 or epoch == opt.n_epoch:
             # save checkpoint
-            checkpoint(network, epoch, "model")
+            save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
+            checkpoint(network, epoch, "model", save_model_path)
+        if epoch % opt.n_val == 0 or epoch == opt.n_epoch:
             # validation
             save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime)
             np.random.seed(101)
