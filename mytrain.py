@@ -19,6 +19,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as F
+from imagecorruptions import corrupt
 
 from arch_unet import UNet
 from validate import validate, ValDatasetFile
@@ -95,9 +96,9 @@ def generate_subimages(img, mask):
     return subimage
 
 
-class DataSet_COCO_val(Dataset):
+class TrainDatasetCOCOOffline(Dataset):
     def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256):
-        super(DataSet_COCO_val, self).__init__()
+        super(TrainDatasetCOCOOffline, self).__init__()
         self.patch = patch
 
         self.data_root = data_root
@@ -138,12 +139,14 @@ class DataSet_COCO_val(Dataset):
         return image    
 
     def __getitem__(self, idx):
-
         img_path_clean = os.path.join(self.data_root, self.clean_root, self.img_paths[idx]) 
         img_path_corrupted = os.path.join(self.data_root, self.corrupted_root, self.img_paths[idx]) 
         imgcl = self._get_img(img_path_clean)
         imgcr = self._get_img(img_path_corrupted)
         assert imgcl.size == imgcr.size, f'{imgcl.size} {imgcr.size}'
+        return self._transform_img(imgcl, imgcr)
+
+    def _transform_img(self, imgcl, imgcr):
         # resize
         s = self._get_resize_params(imgcl)
         imgcl = F.resize(imgcl, s, F.InterpolationMode.BILINEAR, None, None)
@@ -161,6 +164,22 @@ class DataSet_COCO_val(Dataset):
     def __len__(self):
         return len(self.img_paths)
 
+class TrainDatasetCOCOOnline(TrainDatasetCOCOOffline):
+    def __init__(self, data_root, ann_file, corruption, patch=256, fix_random_seed=True):
+        super(TrainDatasetCOCOOnline, self).__init__(data_root, None, None, ann_file, patch)
+        self.corruption = corruption
+        self.severity = 3
+        self.fix_random_seed = fix_random_seed
+
+    def __getitem__(self, idx):
+        img_path_clean = os.path.join(self.data_root, self.img_paths[idx])
+        imgcl = self._get_img(img_path_clean)
+        # get_corruption
+        if self.fix_random_seed:
+            np.random.seed(idx)
+        arraycr = corrupt(np.array(imgcl), corruption_name=self.corruption, severity=self.severity)
+        imgcr = Image.fromarray(arraycr)
+        return self._transform_img(imgcl, imgcr)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -168,6 +187,7 @@ if __name__ == '__main__':
     parser.add_argument('--clean_root', type=str)
     parser.add_argument('--corrupted_root', type=str)
     parser.add_argument('--ann_file', type=str)
+    parser.add_argument('--fix_random_seed_trainset', type=int, default=1)
     parser.add_argument('--val_ann_file', type=str)
     parser.add_argument('--val_dir', type=str)
     parser.add_argument("--noisemethod", type=str, default=None)
@@ -192,6 +212,7 @@ if __name__ == '__main__':
     parser.add_argument("--increase_ratio", type=float, default=2.0)
 
     opt, _ = parser.parse_known_args()
+    opt.dump_images = DUMP_IMAGES[opt.dump_images]
     if opt.n_val is None:
         opt.n_val = opt.n_snapshot
     systime = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
@@ -205,13 +226,23 @@ if __name__ == '__main__':
     logger.info(f'{opt}')
 
     # Training Set
-    TrainingDataset = DataSet_COCO_val(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize)
-    TrainingLoader = DataLoader(dataset=TrainingDataset,
+    if opt.clean_root is not None:
+        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize)
+        TrainingLoader = DataLoader(dataset=TrainingDataset,
                                 num_workers=8,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
+    else:
+        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0)
+        TrainingLoader = DataLoader(dataset=TrainingDataset,
+                                num_workers=8,
+                                batch_size=opt.batchsize,
+                                shuffle=True,
+                                pin_memory=False,
+                                drop_last=True)
+
     valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 

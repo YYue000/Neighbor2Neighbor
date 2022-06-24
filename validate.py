@@ -26,7 +26,8 @@ def read_image(p):
     if image.mode != 'RGB':
         image = image.convert("RGB")
 
-    return np.asarray(image).astype(np.float32)
+    return np.array(image).astype(np.float32)
+    #return np.asarray(image).astype(np.float32)
 
 class ValDatasetDir(Dataset):
     def __init__(self, data_root, noise_method=None, noise_type=None):
@@ -138,14 +139,14 @@ def validate(network, valdataloader, opt, verbose=True):
         if opt.dump_images in [DUMP_IMAGES.DENOISED_CLEAN, DUMP_IMAGES.DENOISED_NOISY_CLEAN]:
             Image.fromarray(origin255).convert('RGB').save(save_path)
 
-        save_path = save_path.replace('clean', 'noisy')
+        save_path = save_path.replace('_clean.jpg', '_noisy.jpg')
         if opt.dump_images in [DUMP_IMAGES.DENOISED_NOISY, DUMP_IMAGES.DENOISED_NOISY_CLEAN]:
             noisy255 = noisy_im[:,:,:H,:W]
             noisy255 = (noisy255.permute(0,2,3,1).squeeze().cpu().numpy()*255).astype(np.uint8)
             Image.fromarray(noisy255).convert('RGB').save(save_path)
-            save_path = save_path.replace('noisy', 'denoised')
+            save_path = save_path.replace('_noisy.jpg', '_denoised.jpg')
         else:
-            save_path = save_path.replace('_noisy', '')
+            save_path = save_path.replace('_noisy.jpg', '.jpg')
        
         if opt.dump_images != DUMP_IMAGES.NO_DUMP:
             Image.fromarray(pred255).convert('RGB').save(save_path)
