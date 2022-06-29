@@ -19,7 +19,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as F
-from imagecorruptions import corrupt
+from imagecorruptions import corrupt, get_corruption_names
 
 from arch_unet import UNet
 from validate import validate, ValDatasetFile
@@ -177,7 +177,11 @@ class TrainDatasetCOCOOnline(TrainDatasetCOCOOffline):
         # get_corruption
         if self.fix_random_seed:
             np.random.seed(idx)
-        arraycr = corrupt(np.array(imgcl), corruption_name=self.corruption, severity=self.severity)
+        if self.corruption == 'random':
+            corruption = random.choice(get_corruption_names())
+        else:
+            corruption = self.corruption
+        arraycr = corrupt(np.array(imgcl), corruption_name=corruption, severity=self.severity)
         imgcr = Image.fromarray(arraycr)
         return self._transform_img(imgcl, imgcr)
 
@@ -243,7 +247,7 @@ if __name__ == '__main__':
                                 pin_memory=False,
                                 drop_last=True)
 
-    valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
+    valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype if opt.noisetype !='random' else 'gaussian_noise')
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 
     # Network
