@@ -97,7 +97,7 @@ def generate_subimages(img, mask):
 
 
 class TrainDatasetCOCOOffline(Dataset):
-    def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256):
+    def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256, resize=True):
         super(TrainDatasetCOCOOffline, self).__init__()
         self.patch = patch
 
@@ -109,7 +109,7 @@ class TrainDatasetCOCOOffline(Dataset):
 
         self.transform = transforms.ToTensor()
 
-        self.resize_range = [256,512]
+        self.resize_range = [256,512] if resize else None
 
     def _get_param_crop(self, img):
         w, h = F.get_image_size(img)
@@ -127,6 +127,12 @@ class TrainDatasetCOCOOffline(Dataset):
     def _get_resize_params(self, img):
         w, h = F.get_image_size(img)
         s, l = min(w,h), max(w,h)
+
+        if self.resize_range is None:
+            if s < self.patch:
+                return self.patch
+            return None
+
         lb = int(self.resize_range[0]/s*l)
         if lb <= self.resize_range[0]:
             return self.resize_range[0]
@@ -149,8 +155,9 @@ class TrainDatasetCOCOOffline(Dataset):
     def _transform_img(self, imgcl, imgcr):
         # resize
         s = self._get_resize_params(imgcl)
-        imgcl = F.resize(imgcl, s, F.InterpolationMode.BILINEAR, None, None)
-        imgcr = F.resize(imgcr, s, F.InterpolationMode.BILINEAR, None, None)
+        if s is not None:
+            imgcl = F.resize(imgcl, s, F.InterpolationMode.BILINEAR, None, None)
+            imgcr = F.resize(imgcr, s, F.InterpolationMode.BILINEAR, None, None)
 
         # random crop
         i, j, h, w = self._get_param_crop(imgcl)
@@ -165,8 +172,8 @@ class TrainDatasetCOCOOffline(Dataset):
         return len(self.img_paths)
 
 class TrainDatasetCOCOOnline(TrainDatasetCOCOOffline):
-    def __init__(self, data_root, ann_file, corruption, patch=256, fix_random_seed=True):
-        super(TrainDatasetCOCOOnline, self).__init__(data_root, None, None, ann_file, patch)
+    def __init__(self, data_root, ann_file, corruption, patch=256, fix_random_seed=True, resize=True):
+        super(TrainDatasetCOCOOnline, self).__init__(data_root, None, None, ann_file, patch, resize)
         self.corruption = corruption
         self.severity = 3
         self.fix_random_seed = fix_random_seed
@@ -197,6 +204,7 @@ if __name__ == '__main__':
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
     parser.add_argument("--dump_images", type=str, default=DUMP_IMAGES.DENOISED_NOISY_CLEAN, choices=list(DUMP_IMAGES))
+    parser.add_argument("--resize_input", type=int, default=1)
     parser.add_argument('--save_model_path', type=str, default='./results')
     parser.add_argument('--log_name', type=str, default='unet_gauss25_b4e100r02')
     parser.add_argument('--log_freq', type=int, default=1)
@@ -231,7 +239,7 @@ if __name__ == '__main__':
 
     # Training Set
     if opt.clean_root is not None:
-        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize)
+        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
                                 num_workers=8,
                                 batch_size=opt.batchsize,
@@ -239,7 +247,7 @@ if __name__ == '__main__':
                                 pin_memory=False,
                                 drop_last=True)
     else:
-        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0)
+        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
                                 num_workers=8,
                                 batch_size=opt.batchsize,
