@@ -153,6 +153,9 @@ def validate(network, valdataloader, opt, verbose=True):
 
     avg_psnr = np.mean(psnr_result)
     avg_ssim = np.mean(ssim_result)
+    if verbose:
+        logger.info(f'psnr {psnr_result}')
+        logger.info(f'ssim {ssim_result}')
     return avg_psnr, avg_ssim
 
 
@@ -167,6 +170,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_feature', type=int, default=48)
     parser.add_argument('--n_channel', type=int, default=3)
     parser.add_argument("--ckpt", type=str)
+    parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--dump_images", type=str, choices=list(DUMP_IMAGES))
 
     opt = parser.parse_args()
@@ -186,7 +190,7 @@ if __name__ == '__main__':
         valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 
-    _,__ = validate(network, valdataloader, opt)
-    logger.info(f'{_} {__}')
+    _,__ = validate(network, valdataloader, opt, verbose=opt.verbose)
+    logger.info(f'avg{_} {__}')
 
 

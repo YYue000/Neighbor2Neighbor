@@ -328,6 +328,7 @@ if __name__ == '__main__':
                 loss3 = torch.mean(torch.square(noisy_denoised-clean))
                 loss_all = opt.Lambda1 * loss1 + opt.Lambda2 * loss2 + opt.Lambda3 * opt.increase_ratio * loss3
             else:
+                loss3=torch.Tensor([-1])
                 loss_all = opt.Lambda1 * loss1 + opt.Lambda2 * loss2
 
             loss_all.backward()
