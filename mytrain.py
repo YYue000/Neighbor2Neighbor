@@ -31,7 +31,10 @@ logger = logging.getLogger('global')
 
 def checkpoint(net, epoch, name, save_model_path):
     os.makedirs(save_model_path, exist_ok=True)
-    model_name = 'epoch_{}_{:03d}.pth'.format(name, epoch)
+    if epoch is not None:
+        model_name = 'epoch_{}_{:03d}.pth'.format(name, epoch)
+    else:
+        model_name = 'epoch_{}.pth'.format(name)
     save_model_path = os.path.join(save_model_path, model_name)
     torch.save(net.state_dict(), save_model_path)
     logger.info('Checkpoint saved to {}'.format(save_model_path))
@@ -217,6 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_epoch', type=int, default=100)
     parser.add_argument('--n_snapshot', type=int, default=1)
     parser.add_argument('--n_val', type=int, default=None)
+    parser.add_argument('--st_val', type=int, default=0)
     parser.add_argument('--batchsize', type=int, default=4)
     parser.add_argument('--patchsize', type=int, default=256)
     parser.add_argument("--Lambda1", type=float, default=1.0)
@@ -289,6 +293,9 @@ if __name__ == '__main__':
         'noisetype': opt.noisetype,
         'dump_images': opt.dump_images})
 
+    best_psnr = -1
+    best_epoch = 0
+
     for epoch in range(1, opt.n_epoch + 1):
         cnt = 0
 
@@ -334,7 +341,6 @@ if __name__ == '__main__':
             loss_all.backward()
             optimizer.step()
             if iteration % opt.log_freq == 0:
-                psnr = calculate_psnr(noisy_denoised.detach().cpu().numpy(), clean.cpu().numpy())
                 logger.info(
                         '{:04d} {:05d} Loss1={:.6f}, Lambda={}, Loss2={:.6f}, Loss3={:.6f}, Loss_Full={:.6f}, Time={:.4f}'
                 .format(epoch, iteration, np.mean(loss1.item()), Lambda,
@@ -347,11 +353,18 @@ if __name__ == '__main__':
             # save checkpoint
             save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
             checkpoint(network, epoch, "model", save_model_path)
-        if epoch % opt.n_val == 0 or epoch == opt.n_epoch:
+        if epoch >= opt.st_val and epoch % opt.n_val == 0 or epoch == opt.n_epoch:
             # validation
             save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime)
             np.random.seed(101)
             validate_opt['save_model_path'] = save_model_path
             avg_psnr, avg_ssim = validate(network, valdataloader, validate_opt, verbose=False)
             logger.info("epoch:{},avg_psnr{},avg_ssim{}\n".format(epoch, avg_psnr, avg_ssim))
+            if avg_psnr > best_psnr:
+                best_psnr = avg_psnr
+                best_epoch = epoch
+                save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
+                checkpoint(network, None, "best", save_model_path)
+    logger.info(f'best {best_epoch} {best_psnr}')
+
 

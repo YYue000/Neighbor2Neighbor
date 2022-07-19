@@ -57,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--batchsize', type=int, default=4)
     parser.add_argument('--patchsize', type=int, default=256)
     parser.add_argument("--Lambda", type=float, default=1.0)
+    parser.add_argument('--st_val', type=int, default=0)
 
     opt, _ = parser.parse_known_args()
     opt.dump_images = DUMP_IMAGES[opt.dump_images]
@@ -123,9 +124,10 @@ if __name__ == '__main__':
         'noisetype': opt.noisetype,
         'dump_images': opt.dump_images})
 
-    for epoch in range(1, opt.n_epoch + 1):
-        cnt = 0
+    best_psnr = -1
+    best_epoch = 0
 
+    for epoch in range(1, opt.n_epoch + 1):
         for param_group in optimizer.param_groups:
             current_lr = param_group['lr']
         logger.info("LearningRate of Epoch {} = {}".format(epoch, current_lr))
@@ -178,11 +180,18 @@ if __name__ == '__main__':
             # save checkpoint
             save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
             checkpoint(network, epoch, "model", save_model_path)
-        if epoch % opt.n_val == 0 or epoch == opt.n_epoch:
+        if epoch >= opt.st_val and epoch % opt.n_val == 0 or epoch == opt.n_epoch:
             # validation
             save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime)
             np.random.seed(101)
             validate_opt['save_model_path'] = save_model_path
             avg_psnr, avg_ssim = validate(network, valdataloader, validate_opt, verbose=False)
             logger.info("epoch:{},avg_psnr{},avg_ssim{}\n".format(epoch, avg_psnr, avg_ssim))
+            if avg_psnr > best_psnr:
+                best_psnr = avg_psnr
+                best_epoch = epoch
+                save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
+                checkpoint(network, None, "best", save_model_path)
+    logger.info(f'best {best_epoch} {best_psnr}')
+
 
