@@ -1,13 +1,19 @@
-ROOT=../..
+c=$1
+m=$2
+p=$3
+exp=0
+
+ROOT=../../../..
 export PYTHONPATH=$PYTHONPATH:$ROOT
 
 for e in $(seq 800 10 1000)
 do
 python $ROOT/validate.py \
 --save_model_path=./results/validation \
---noisetype=gaussian_noise \
+--noisetype=${c} \
 --noisemethod=imagecorruptions \
 --val_dir=/yueyuxin/data/coco/val2017 \
+--val_ann_file=/yueyuxin/mmdetection/corruption_benchmarks/${p}/${m}/${c}-3/failure_annotation_fltest_${exp}.json \
 --dump_images=NO_DUMP \
 --ckpt=results/train/2022-07-15-02-52/checkpoints/epoch_model_${e}.pth \
 2>&1|tee -a val.log

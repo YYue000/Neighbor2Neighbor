@@ -193,5 +193,6 @@ if __name__ == '__main__':
                 save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
                 checkpoint(network, None, "best", save_model_path)
     logger.info(f'best {best_epoch} {best_psnr}')
+    os.system(f'ln -s {save_model_path}/{systime}/checkpoints/model_best.pth {save_model_path}/model_best.pth')
 
 

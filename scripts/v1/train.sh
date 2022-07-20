@@ -1,11 +1,11 @@
-c=gaussian_noise
+c=$3
 m=$1
 p=$2
 
 ROOT=../../..
 export PYTHONPATH=$PYTHONPATH:$ROOT
 
-python $ROOT/mytrain.py \
+python $ROOT/mytrain2.py \
 --data_root=/yueyuxin/data/coco/val2017 \
 --ann_file=/yueyuxin/mmdetection/corruption_benchmarks/${p}/${m}/${c}-3/failure_annotation_fltrain_0.json \
 --save_model_path=./results \
@@ -19,7 +19,7 @@ python $ROOT/mytrain.py \
 --val_dir=/yueyuxin/data/coco/val2017 \
 --n_epoch=1000 \
 --n_snapshot=10 \
---n_val=1000 \
+--n_val=100000 \
 --resize_input=0 \
 2>&1|tee train.log
 

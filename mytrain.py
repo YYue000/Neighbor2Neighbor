@@ -34,7 +34,7 @@ def checkpoint(net, epoch, name, save_model_path):
     if epoch is not None:
         model_name = 'epoch_{}_{:03d}.pth'.format(name, epoch)
     else:
-        model_name = 'epoch_{}.pth'.format(name)
+        model_name = 'model_{}.pth'.format(name)
     save_model_path = os.path.join(save_model_path, model_name)
     torch.save(net.state_dict(), save_model_path)
     logger.info('Checkpoint saved to {}'.format(save_model_path))
@@ -366,5 +366,8 @@ if __name__ == '__main__':
                 save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
                 checkpoint(network, None, "best", save_model_path)
     logger.info(f'best {best_epoch} {best_psnr}')
+    
+    save_model_path = os.path.join(opt.save_model_path, opt.log_name)
+    os.system(f'ln -s {save_model_path}/{systime}/checkpoints/model_best.pth {save_model_path}/model_best.pth')
 
 

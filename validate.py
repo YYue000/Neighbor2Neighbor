@@ -161,7 +161,7 @@ def validate(network, valdataloader, opt, verbose=True):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gpu", type=int, default=None)
+    parser.add_argument("--gpu", type=str, default='0')
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
     parser.add_argument('--val_dir', type=str)
@@ -176,6 +176,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     opt.dump_images = DUMP_IMAGES[opt.dump_images]
     logger.info(f'{opt}')
+    os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpu
 
 
     network = UNet(in_nc=opt.n_channel,
