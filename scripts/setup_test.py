@@ -1,11 +1,11 @@
 import os
+import copy
 import shutil
 from mmcv import Config
 
 test_in = 3
 #test_in = 1
 #test_in = 2
-
 
 
 MODELS = ['retinanet_r50_fpn_1x_coco', 'retinanet_r101_fpn_1x_coco', 'faster_rcnn_r50_fpn_1x_coco', 'faster_rcnn_r101_fpn_1x_coco',
@@ -26,6 +26,7 @@ corruption_dir = '/yueyuxin/mmdetection/corruption_benchmarks/'
 if __name__ == '__main__':
     corruption = 'gaussian_noise'
     supervision = 'self-supervised'
+    MODELS = ['faster_rcnn_r50_fpn_1x_coco']
     #supervision = 'supervised'
     
     severity = 3
@@ -35,14 +36,12 @@ if __name__ == '__main__':
 
     runsh = ''
 
-    #for cfg in MODELS:
-    for cfg in ['retinanet_r50_fpn_1x_coco']:
+    for cfg in MODELS:
         bkb = 'r101' if 'r101' in cfg else 'r50'
         prefix = cfg[:cfg.find(f'_{bkb}')]
         wkd = os.path.join(worksp_root, prefix, cfg, f'{corruption}-{severity}')
 
-        #for e in range(5):
-        for e in [0,2,3,4]:
+        for e in range(5):
             wkde = os.path.join(wkd, f'exp{e}') 
             #tmp
             if os.path.exists(os.path.join(wkde, 'output.bbox.json')):
@@ -62,7 +61,7 @@ if __name__ == '__main__':
             test_data = _cfg['data']['test']
             _cfg['data']['test']['img_prefix'] = f'{denoise_d}/epoch/validation'
             clean_test_data = copy.deepcopy(test_data)
-            clean_test_data['img_prefix'] = test_data.replace("results","results_clean")
+            clean_test_data['img_prefix'] = test_data["img_prefix"].replace("results","results_clean")
             if test_in == 2:
                 _cfg['data']['test'] = dict(type='ConcatDataset', datasets=[test_data, clean_test_data])
                 _cfg.dump(os.path.join(wkde, cfg+'.py'))
@@ -80,16 +79,20 @@ if __name__ == '__main__':
             #assert len(vals)>0, f'{denoise_d}'
             #_cfg['data']['test']['img_prefix'] = f'{denoise_d}/epoch{max(vals)}/validation'
 
-
+            runsh += f'cd /yueyuxin/denoise/myNeighbor2Neighbor/{supervision}/{corruption}-{severity}/{cfg}/exp{e}\n'
+            if test_in==2 or test_in==2:
+                runsh += f'sh val.sh $1\nsh val_cl.sh $1\n'
+            elif test_in == 3:
+                runsh += f'sh val_cl.sh $1\n'
             runsh += f'cd {wkde}\n'
             ckpt = os.path.join('/yueyuxin/mmdetection/corruption_benchmarks/',prefix, cfg, f'{cfg}{ckpt_code[cfg]}.pth')
             if test_in == 2:
-                runsh += f'sh test.sh {cfg}.py {ckpt} $1\npython get_mean.py --test_in 2 --MAXEPOCH 1\n'
+                runsh += f'sh test.sh {cfg}.py {ckpt} $1\npython get_mean.py --test_in 2 --MAXEPOCH 1 2>&1|tee sum.log\n'
             elif test_in == 3:
-                runsh += f'sh test_clean.sh {cfg}_cl.py {ckpt} $1\npython get_mean.py --MAXEPOCH 1\n'
+                runsh += f'sh test_clean.sh {cfg}_cl.py {ckpt} $1\npython get_mean.py --MAXEPOCH 1 2>&1|tee sum.log\n'
             elif test_in == 1:
-                runsh += f'sh test.sh {cfg}.py {ckpt $1}\nsh test_clean.sh {cfg}_cl.py {ckpt} $1\npython get_mean.py --MAXEPOCH 1\n'
+                runsh += f'sh test.sh {cfg}.py {ckpt} $1\nsh test_clean.sh {cfg}_cl.py {ckpt} $1\npython get_mean.py --MAXEPOCH 1 2>&1|tee sum.log\n'
 
-    with open(f'run_{corruption}_{supervision}.sh', 'w') as fw:
+    with open(f'run_{corruption}_{supervision}_{len(MODELS) if len(MODELS)>1 else MODELS[0]}.sh', 'w') as fw:
         fw.write(runsh)
     
