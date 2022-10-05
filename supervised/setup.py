@@ -13,7 +13,7 @@ for m in MODELS:
         for e in range(5):
             d = f'{c}-3/{m}/exp{e}'
             os.makedirs(d)
-            for f in ['train.sh','quick_val.sh', 'val.sh']:
+            for f in ['train.sh','val_cl.sh', 'val.sh']:
                 with open(f) as fr:
                     with open(f'{d}/{f}', 'w') as fw:
                         i = 0
