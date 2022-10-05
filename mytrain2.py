@@ -38,6 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--fix_random_seed_trainset', type=int, default=1)
     parser.add_argument('--val_ann_file', type=str)
     parser.add_argument('--val_dir', type=str)
+    parser.add_argument("--clean_prob", type=float, default=0)
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
     parser.add_argument("--dump_images", type=str, default=DUMP_IMAGES.DENOISED_NOISY_CLEAN, choices=list(DUMP_IMAGES))
@@ -75,24 +76,24 @@ if __name__ == '__main__':
 
     # Training Set
     if opt.clean_root is not None:
-        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0)
+        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=8,
+                                num_workers=2,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
     else:
-        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0)
+        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=8,
+                                num_workers=2,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
 
     valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype if opt.noisetype !='random' else 'gaussian_noise')
-    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
+    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False, num_workers=2)
 
     # Network
     network = UNet(in_nc=opt.n_channel,
@@ -193,6 +194,8 @@ if __name__ == '__main__':
                 save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
                 checkpoint(network, None, "best", save_model_path)
     logger.info(f'best {best_epoch} {best_psnr}')
+
+    save_model_path = os.path.join(os.path.abspath(opt.save_model_path), opt.log_name)
+    if os.path.exists(f'{save_model_path}/model_best.pth'):
+        os.remove(f'{save_model_path}/model_best.pth')
     os.system(f'ln -s {save_model_path}/{systime}/checkpoints/model_best.pth {save_model_path}/model_best.pth')
-
-

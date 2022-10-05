@@ -23,7 +23,7 @@ from imagecorruptions import corrupt, get_corruption_names
 
 from arch_unet import UNet
 from validate import validate, ValDatasetFile
-from utils import Generator, DUMP_IMAGES, calculate_psnr
+from utils import  DUMP_IMAGES, calculate_psnr
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s-%(filename)s#%(lineno)d:%(message)s')
@@ -37,7 +37,7 @@ def checkpoint(net, epoch, name, save_model_path):
         model_name = 'model_{}.pth'.format(name)
     save_model_path = os.path.join(save_model_path, model_name)
     torch.save(net.state_dict(), save_model_path)
-    logger.info('Checkpoint saved to {}'.format(save_model_path))
+    logger.info('Checkpoint saved to {} at epoch {}'.format(save_model_path, epoch))
 
 
 def space_to_depth(x, block_size):
@@ -48,6 +48,7 @@ def space_to_depth(x, block_size):
 
 
 def generate_mask_pair(img):
+    from utils import Generator
     # prepare masks (N x C x H/2 x W/2)
     n, c, h, w = img.shape
     mask1 = torch.zeros(size=(n * h // 2 * w // 2 * 4, ),
@@ -67,7 +68,7 @@ def generate_mask_pair(img):
     torch.randint(low=0,
                   high=8,
                   size=(n * h // 2 * w // 2, ),
-                  #generator=Generator.get_generator(), # debug
+                  generator=Generator.get_generator(),
                   out=rd_idx)
     rd_pair_idx = idx_pair[rd_idx]
     rd_pair_idx += torch.arange(start=0,
@@ -100,7 +101,7 @@ def generate_subimages(img, mask):
 
 
 class TrainDatasetCOCOOffline(Dataset):
-    def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256, resize=True):
+    def __init__(self, data_root, clean_root, corrupted_root, ann_file, patch=256, resize=True, clean_prob=0):
         super(TrainDatasetCOCOOffline, self).__init__()
         self.patch = patch
 
@@ -113,6 +114,7 @@ class TrainDatasetCOCOOffline(Dataset):
         self.transform = transforms.ToTensor()
 
         self.resize_range = [256,512] if resize else None
+        self.clean_prob = clean_prob
 
     def _get_param_crop(self, img):
         w, h = F.get_image_size(img)
@@ -175,11 +177,12 @@ class TrainDatasetCOCOOffline(Dataset):
         return len(self.img_paths)
 
 class TrainDatasetCOCOOnline(TrainDatasetCOCOOffline):
-    def __init__(self, data_root, ann_file, corruption, patch=256, fix_random_seed=True, resize=True):
+    def __init__(self, data_root, ann_file, corruption, patch=256, fix_random_seed=True, resize=True, clean_prob=0):
         super(TrainDatasetCOCOOnline, self).__init__(data_root, None, None, ann_file, patch, resize)
         self.corruption = corruption
         self.severity = 3
         self.fix_random_seed = fix_random_seed
+        self.clean_prob = clean_prob
 
     def __getitem__(self, idx):
         img_path_clean = os.path.join(self.data_root, self.img_paths[idx])
@@ -193,6 +196,11 @@ class TrainDatasetCOCOOnline(TrainDatasetCOCOOffline):
             corruption = self.corruption
         arraycr = corrupt(np.array(imgcl), corruption_name=corruption, severity=self.severity)
         imgcr = Image.fromarray(arraycr)
+        if self.clean_prob > 0 and random.random()<self.clean_prob:
+            imgcr = imgcl
+        else:
+            arraycr = corrupt(np.array(imgcl), corruption_name=corruption, severity=self.severity)
+            imgcr = Image.fromarray(arraycr)
         return self._transform_img(imgcl, imgcr)
 
 if __name__ == '__main__':
@@ -202,6 +210,7 @@ if __name__ == '__main__':
     parser.add_argument('--corrupted_root', type=str)
     parser.add_argument('--ann_file', type=str)
     parser.add_argument('--fix_random_seed_trainset', type=int, default=1)
+    parser.add_argument("--clean_prob", type=float, default=0)
     parser.add_argument('--val_ann_file', type=str)
     parser.add_argument('--val_dir', type=str)
     parser.add_argument("--noisemethod", type=str, default=None)
@@ -244,24 +253,24 @@ if __name__ == '__main__':
 
     # Training Set
     if opt.clean_root is not None:
-        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0)
+        TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=8,
+                                num_workers=2,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
     else:
-        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0)
+        TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=8,
+                                num_workers=2,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
 
     valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype if opt.noisetype !='random' else 'gaussian_noise')
-    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
+    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False, num_workers=1)
 
     # Network
     network = UNet(in_nc=opt.n_channel,
@@ -365,9 +374,11 @@ if __name__ == '__main__':
                 best_epoch = epoch
                 save_model_path = os.path.join(opt.save_model_path, opt.log_name, systime, 'checkpoints')
                 checkpoint(network, None, "best", save_model_path)
+            np.random.seed(epoch*2+1)
     logger.info(f'best {best_epoch} {best_psnr}')
     
-    save_model_path = os.path.join(opt.save_model_path, opt.log_name)
+    save_model_path = os.path.join(os.path.abspath(opt.save_model_path), opt.log_name)
+    if os.path.exists(f'{save_model_path}/model_best.pth'):
+        os.remove(f'{save_model_path}/model_best.pth')
     os.system(f'ln -s {save_model_path}/{systime}/checkpoints/model_best.pth {save_model_path}/model_best.pth')
-
 
