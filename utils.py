@@ -1,10 +1,8 @@
-import torch
 import numpy as np
 import cv2
 from easydict import EasyDict
 
-import logging
-logger = logging.getLogger('global')
+import torch
 
 class Generator():
     operation_seed_counter = 0
@@ -12,13 +10,14 @@ class Generator():
     @staticmethod
     def get_generator():
         Generator.operation_seed_counter += 1
-        print('operation_seed_counter',Generator.operation_seed_counter)
+        #print('operation_seed_counter',Generator.operation_seed_counter)
         g_cuda_generator = torch.Generator(device="cuda")
         g_cuda_generator.manual_seed(Generator.operation_seed_counter)
         return g_cuda_generator
 
 
 class AugmentNoise(object):
+    import torch
     def __init__(self, style):
         logger.info(f'{style}')
         if style.startswith('gauss'):

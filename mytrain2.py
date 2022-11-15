@@ -38,6 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--fix_random_seed_trainset', type=int, default=1)
     parser.add_argument('--val_ann_file', type=str)
     parser.add_argument('--val_dir', type=str)
+    parser.add_argument('--val_clean_dir', type=str, default=None)
     parser.add_argument("--clean_prob", type=float, default=0)
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
@@ -59,6 +60,9 @@ if __name__ == '__main__':
     parser.add_argument('--patchsize', type=int, default=256)
     parser.add_argument("--Lambda", type=float, default=1.0)
     parser.add_argument('--st_val', type=int, default=0)
+    parser.add_argument('--num_workers', type=int, default=2)
+    parser.add_argument('--val_num_workers', type=int, default=2)
+
 
     opt, _ = parser.parse_known_args()
     opt.dump_images = DUMP_IMAGES[opt.dump_images]
@@ -78,7 +82,7 @@ if __name__ == '__main__':
     if opt.clean_root is not None:
         TrainingDataset = TrainDatasetCOCOOffline(opt.data_root, opt.clean_root, opt.corrupted_root, opt.ann_file, patch=opt.patchsize, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=2,
+                                num_workers=opt.num_workers,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
@@ -86,14 +90,14 @@ if __name__ == '__main__':
     else:
         TrainingDataset = TrainDatasetCOCOOnline(opt.data_root, opt.ann_file, opt.noisetype, patch=opt.patchsize, fix_random_seed=opt.fix_random_seed_trainset>0, resize=opt.resize_input>0, clean_prob=opt.clean_prob)
         TrainingLoader = DataLoader(dataset=TrainingDataset,
-                                num_workers=2,
+                                num_workers=opt.num_workers,
                                 batch_size=opt.batchsize,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last=True)
 
-    valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype if opt.noisetype !='random' else 'gaussian_noise')
-    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False, num_workers=2)
+    valdataset = ValDatasetFile(opt.val_dir, opt.val_clean_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype if opt.noisetype !='random' else 'gaussian_noise')
+    valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False, num_workers=opt.val_num_workers)
 
     # Network
     network = UNet(in_nc=opt.n_channel,

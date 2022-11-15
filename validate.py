@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from imagecorruptions import corrupt
 
 from arch_unet import UNet
-from utils import AugmentNoise, calculate_ssim, calculate_psnr, DUMP_IMAGES
+from utils import calculate_ssim, calculate_psnr, DUMP_IMAGES
 
 import argparse
 import random
@@ -30,14 +30,16 @@ def read_image(p):
     #return np.asarray(image).astype(np.float32)
 
 class ValDatasetDir(Dataset):
-    def __init__(self, data_root, noise_method=None, noise_type=None):
+    def __init__(self, data_root, clean_root, noise_method=None, noise_type=None):
         super(ValDatasetDir, self).__init__()
         self.data_root = data_root
+        self.clean_root = clean_root
         self.img_paths = self._get_img_paths()
         
         logger.info(f'noisetype {noise_method} {noise_type}')
         self.noise_method = noise_method
         if noise_method == 'AugmentNoise':
+            from utils import AugmentNoise
             self.noise_adder = AugmentNoise(style=noise_type)
         elif noise_method == 'imagecorruptions':
             self.severity = 3
@@ -65,12 +67,16 @@ class ValDatasetDir(Dataset):
         else:
             raise NotImplementedError
 
+
     def __getitem__(self, idx):
         imgpath = self.img_paths[idx]
 
         im = read_image(imgpath)
 
         noisy_im = self._add_noise(im)
+
+        if self.noise_method is None and self.clean_root is not None:
+            im = read_image(imgpath.replace(self.data_root, self.clean_root))
 
         # padding to square
         H = noisy_im.shape[0]
@@ -89,10 +95,11 @@ class ValDatasetDir(Dataset):
         return len(self.img_paths)
 
 class ValDatasetFile(ValDatasetDir):
-    def __init__(self, data_root, ann_file, noise_method=None, noise_type=None):
+    def __init__(self, data_root, clean_root, ann_file, noise_method=None, noise_type=None):
         self.ann_file = ann_file
         self.data_root = data_root
-        super(ValDatasetFile, self).__init__(data_root, noise_method, noise_type)
+        self.clean_root = clean_root
+        super(ValDatasetFile, self).__init__(data_root, clean_root, noise_method, noise_type)
 
     def _get_img_paths(self):
          return [os.path.join(self.data_root, _['file_name']) for _ in json.load(open(self.ann_file))['images']]
@@ -165,6 +172,7 @@ if __name__ == '__main__':
     parser.add_argument("--noisemethod", type=str, default=None)
     parser.add_argument("--noisetype", type=str, default=None)
     parser.add_argument('--val_dir', type=str)
+    parser.add_argument('--val_clean_dir', type=str, default=None)
     parser.add_argument('--val_ann_file', type=str, default=None)
     parser.add_argument('--save_model_path', type=str, default='./results')
     parser.add_argument('--n_feature', type=int, default=48)
@@ -186,9 +194,9 @@ if __name__ == '__main__':
     network.load_state_dict(torch.load(opt.ckpt))
 
     if opt.val_ann_file is None:
-        valdataset = ValDatasetDir(opt.val_dir, opt.noisemethod, opt.noisetype)
+        valdataset = ValDatasetDir(opt.val_dir,opt.val_clean_dir, opt.noisemethod, opt.noisetype)
     else:
-        valdataset = ValDatasetFile(opt.val_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
+        valdataset = ValDatasetFile(opt.val_dir, opt.val_clean_dir, opt.val_ann_file, opt.noisemethod, opt.noisetype)
     valdataloader = DataLoader(valdataset, batch_size=1, shuffle=False)
 
     _,__ = validate(network, valdataloader, opt, verbose=opt.verbose)
